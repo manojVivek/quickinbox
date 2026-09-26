@@ -54,7 +54,8 @@
 		{
 			"binding": "DB",
 			"database_name": "quickmail",
-			// `bun run setup` fills this in, or: wrangler d1 create <name>
+			// Set D1_DATABASE_ID in Workers Builds variables or a local .env file.
+			// `bun run deploy` injects it into the gitignored wrangler.deploy.jsonc.
 			"database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
 			"migrations_dir": "migrations"
 		}

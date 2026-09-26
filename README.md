@@ -35,7 +35,7 @@ rest of the schema). If an older deploy left you with `no such table: users`,
 run this once against that Worker, then reload:
 
 ```bash
-npx wrangler d1 migrations apply DB --remote
+bun run db:migrate:remote
 ```
 
 The wizard creates the D1 database and R2 bucket, writes config, and onboards
@@ -92,12 +92,39 @@ bunx wrangler d1 create quickmail
 bunx wrangler r2 bucket create quickmail-attachments
 ```
 
-Copy the printed `database_id` into `wrangler.jsonc` (replacing
-`REPLACE_WITH_YOUR_D1_DATABASE_ID`), then run migrations:
+Save the printed database UUID as `D1_DATABASE_ID` in your local, gitignored
+`.env` file (copy `.env.example` if you do not have one):
+
+```dotenv
+D1_DATABASE_ID=your-d1-database-uuid
+```
+
+Keep the placeholder in `wrangler.jsonc`, then run migrations:
 
 ```bash
 bun run db:migrate:remote
 ```
+
+`bun run deploy` and `bun run db:migrate:remote` read `D1_DATABASE_ID` and
+generate the gitignored `wrangler.deploy.jsonc`. Migrations and deployment
+both use that config; the tracked template stays unchanged. A missing or
+invalid UUID stops the command before any remote changes. Existing installs
+with a valid ID already in `wrangler.jsonc` still work when the variable is unset.
+
+For **Git deployments through Cloudflare Workers Builds**:
+
+1. Open your Worker → **Settings → Build → Variables and secrets**.
+2. Add `D1_DATABASE_ID` with the UUID of your existing D1 database.
+3. Set the deploy command to `bun run deploy`, then trigger a new build.
+
+This is a **build environment variable**, not a Worker runtime secret. Adding
+it only under the Worker's runtime **Variables and Secrets** will not make it
+available during deployment. Keep `RESEND_API_KEY` and `RESEND_WEBHOOK_SECRET`
+as Worker runtime secrets.
+
+For direct Wrangler commands that access remote D1, first run
+`bun scripts/prepare-deploy.mjs`, then pass `--config wrangler.deploy.jsonc`.
+Local development and local migrations do not require a production database ID.
 
 To serve from your own hostname, uncomment the `routes` block in
 `wrangler.jsonc` — the zone must be on the same Cloudflare account.
@@ -452,7 +479,7 @@ migrations/          D1 schema, applied in order
 | Webhook 401 | `RESEND_WEBHOOK_SECRET` mismatch — secrets are shown once; recreate the webhook |
 | Webhook 500 | `bunx wrangler tail` |
 | Attachments missing | R2 bucket must exist and match `bucket_name` in `wrangler.jsonc` |
-| `database_id` errors on deploy | Paste the id from `wrangler d1 create` into `wrangler.jsonc` |
+| `database_id` errors on deploy | Set `D1_DATABASE_ID` to the D1 UUID in Workers Builds variables or local `.env`, and use `bun run deploy` |
 | Setup shows no Cloudflare domains | Set `CLOUDFLARE_MAIL_DOMAINS` and `EMAIL_PROVIDER=cloudflare`, restart the dev server |
 
 ## License
