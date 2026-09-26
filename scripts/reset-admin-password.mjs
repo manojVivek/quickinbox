@@ -3,14 +3,23 @@
  * Reset a user's password in remote (or local) D1.
  * Usage: bun scripts/reset-admin-password.mjs <email> <password> [--local]
  */
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { webcrypto } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 const { subtle } = webcrypto;
 const PBKDF2_ITERATIONS = 100_000;
 
-const root = fileURLToPath(new URL('..', import.meta.url));
+// Read the D1 name out of wrangler.jsonc so this keeps working if you rename it.
+const wranglerPath = new URL('../wrangler.jsonc', import.meta.url);
+const databaseName = readFileSync(wranglerPath, 'utf8').match(
+	/"database_name"\s*:\s*"([^"]+)"/
+)?.[1];
+
+if (!databaseName) {
+	console.error('Could not find "database_name" in wrangler.jsonc.');
+	process.exit(1);
+}
 
 function toBase64(bytes) {
 	return Buffer.from(bytes).toString('base64');
@@ -53,22 +62,9 @@ const sql = `UPDATE users SET password_hash = '${escape(passwordHash)}' WHERE em
 	email.toLowerCase()
 )}';`;
 
-if (!local) {
-	execFileSync('bun', ['scripts/prepare-deploy.mjs'], { stdio: 'inherit', cwd: root });
-}
-execFileSync(
-	'bunx',
-	[
-		'wrangler',
-		'd1',
-		'execute',
-		'DB',
-		local ? '--local' : '--remote',
-		...(!local ? ['--config', 'wrangler.deploy.jsonc'] : []),
-		'--command',
-		sql
-	],
-	{ stdio: 'inherit', cwd: root }
+execSync(
+	`bunx wrangler d1 execute ${databaseName} ${local ? '--local' : '--remote'} --command "${sql.replace(/"/g, '\\"')}"`,
+	{ stdio: 'inherit', cwd: new URL('..', import.meta.url).pathname }
 );
 
 console.log(`\nPassword reset for ${email} (${local ? 'local' : 'remote'} DB).`);

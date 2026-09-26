@@ -780,6 +780,16 @@ function ensureR2(bucketName) {
 	throw new Error(text.trim() || `Failed to create R2 bucket "${bucketName}".`);
 }
 
+function setPackageMigrateScripts(databaseName) {
+	const pkgPath = join(root, 'package.json');
+	if (!existsSync(pkgPath)) return;
+	const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+	if (!pkg.scripts) return;
+	pkg.scripts['db:migrate:local'] = `wrangler d1 migrations apply ${databaseName} --local`;
+	pkg.scripts['db:migrate:remote'] = `wrangler d1 migrations apply ${databaseName} --remote`;
+	writeFileSync(pkgPath, `${JSON.stringify(pkg, null, '\t')}\n`);
+}
+
 function putSecret(name, value) {
 	wrangler(['secret', 'put', name], {
 		input: value,
@@ -948,15 +958,13 @@ async function setupResend(domain) {
 }
 
 function migrate(local, remote) {
+	const databaseName = jsoncString(readWrangler(), 'database_name') || 'quickmail';
 	if (local) {
-		wrangler(['d1', 'migrations', 'apply', 'DB', '--local'], { inherit: true });
+		wrangler(['d1', 'migrations', 'apply', databaseName, '--local'], { inherit: true });
 		ok('local D1 migrations applied');
 	}
 	if (remote) {
-		run(bunBin(), ['scripts/prepare-deploy.mjs'], { inherit: true });
-		wrangler(['d1', 'migrations', 'apply', 'DB', '--remote', '--config', 'wrangler.deploy.jsonc'], {
-			inherit: true
-		});
+		wrangler(['d1', 'migrations', 'apply', databaseName, '--remote'], { inherit: true });
 		ok('remote D1 migrations applied');
 	}
 }
@@ -1067,7 +1075,7 @@ function printNextSteps(state) {
 		log('  Optional inbox tabs: bunx wrangler secret put TYPESAFE_API_KEY && bun run deploy');
 	}
 
-	log(`\n  ${c.dim('The D1 id is saved in .env (gitignored). Set D1_DATABASE_ID in Workers Builds for Git deployments.')}`);
+	log(`\n  ${c.dim('wrangler.jsonc now has a real D1 id. Do not commit that back to the public template.')}`);
 	if (state.publicUrl) log(`\n  ${c.green(state.publicUrl)}`);
 }
 
@@ -1128,7 +1136,7 @@ async function main() {
 	source = readWrangler();
 	source = setFirstString(source, 'name', workerName);
 	source = setFirstString(source, 'database_name', databaseName);
-	source = setFirstString(source, 'database_id', 'REPLACE_WITH_YOUR_D1_DATABASE_ID');
+	source = setFirstString(source, 'database_id', databaseId);
 	source = setFirstString(source, 'bucket_name', bucketName);
 	source = setVars(source, {
 		provider,
@@ -1142,9 +1150,8 @@ async function main() {
 	}
 	writeWrangler(source);
 	ok('updated wrangler.jsonc');
-	upsertEnvFile(join(root, '.env'), { D1_DATABASE_ID: databaseId });
-	process.env.D1_DATABASE_ID = databaseId;
-	ok('saved D1_DATABASE_ID in .env');
+	setPackageMigrateScripts(databaseName);
+	if (databaseName !== 'quickmail') ok(`updated package.json migrate scripts for ${databaseName}`);
 
 	const devVars = {
 		EMAIL_PROVIDER: provider
